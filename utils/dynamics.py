@@ -200,7 +200,8 @@ class Dynamics(object):
         e_old = self.hamiltonian(x0, v0, aux)
 
         v = e_old - e_new + log_jac
-        p = torch.exp(torch.min(v, 0.0))
+        z = torch.FloatTensor([0])
+        p = torch.exp(torch.min(v, z.expand_as(v)))
 
         return torch.where(torch.isfinite(p), p, torch.zeros_like(p))
 
