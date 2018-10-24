@@ -130,17 +130,15 @@ class Dynamics(object):
         return x, v, torch.sum(sv1 + sv2 + mb * sx1 + m * sx2, dim=1)
 
     def energy(self, x, aux=None):
-        if aux is not None: 
+        if aux is not None:
             return self.energy_function(x, aux)
         else:
             return self.energy_function(x)
 
     def grad_energy(self, x, aux=None):
-        x.requires_grad=True
-        en = self.energy(x, aux)
-        en.backward()
-        grad = x.grad
-        x.requires_grad=False
+        y = x.detach().requires_grad_()
+        en = self.energy(y, aux)
+        grad = torch.autograd.grad(en, y)
         return grad
 
     def forward(self, x, init_v=None, aux=None, log_path=False, log_jac=False):
