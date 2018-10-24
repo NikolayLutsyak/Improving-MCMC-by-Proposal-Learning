@@ -1,10 +1,8 @@
 import torch
 import numpy as np
 
-
 def safe_exp(x, name=None):
     return torch.exp(x)
-
 
 class Dynamics(object):
     def __init__(self,
@@ -13,13 +11,14 @@ class Dynamics(object):
                  T=25,
                  eps=0.1,
                  hmc=False,
-                 net_factory=None):
+                 net_factory=None,
+                 encoder_sampler=None):
         self.hmc = hmc
         self.x_dim = x_dim
         self.energy_function = energy_function
         self.T = T
-        self.Xnet = net_factory
-        self.VNet = net_factory
+        self.Xnet = net_factory(x_dim, encoder=encoder_sampler).cuda(1)
+        self.VNet = net_factory(x_dim, encoder=encoder_sampler).cuda(1)
         self._init_mask()
 
     def _init_mask(self):
@@ -42,7 +41,7 @@ class Dynamics(object):
         return trig_t.repeat(tile, 1)
 
     def _forward_step(self, x, v, step, aux=None):
-        t = self._format_time(step, tile=x.size()[0])
+        t = self._format_time(step, tile=x.size()[0]).cuda(1)
 
         grad1 = self.grad_energy(x, aux)
         S1 = self.VNet([x, grad1, t, aux])  # rewrite for torch
