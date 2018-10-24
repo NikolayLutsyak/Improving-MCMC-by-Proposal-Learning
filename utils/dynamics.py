@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+from time import time as localtime
 
 def safe_exp(x, name=None):
     return torch.exp(x)
@@ -8,7 +9,7 @@ class Dynamics(object):
     def __init__(self,
                  x_dim,
                  energy_function,
-                 T=25,
+                 T=5,
                  eps=0.1,
                  hmc=False,
                  net_factory=None,
@@ -32,7 +33,7 @@ class Dynamics(object):
             m = np.zeros((self.x_dim,))
             m[ind] = 1
             mask_per_step.append(m)
-        self.mask = torch.FloatTensor(np.stack(mask_per_step))
+        self.mask = torch.FloatTensor(np.stack(mask_per_step)).cuda(1)
 
     def _get_mask(self, t):
         m = self.mask[t]
@@ -46,19 +47,19 @@ class Dynamics(object):
     def _forward_step(self, x, v, step, aux=None):
         t = self._format_time(step, tile=x.size()[0]).cuda(1)
 
-        grad1 = self.grad_energy(x, aux)
-        S1 = self.VNet([x, grad1, t, aux])  # rewrite for torch
+        grad1 = self.grad_energy(x.data, aux)
+        S1 = self.VNet([x, grad1, t, aux.cuda(1)])  # rewrite for torch
 
         sv1 = 0.5 * self.eps * S1[0]  # rewrite for torch
         tv1 = S1[1]  # rewrite for torch
         fv1 = self.eps * S1[2]  # rewrite for torch
 
-        v_h = v * safe_exp(sv1, name='sv1F') + 0.5 * self.eps * \
+        v_h = v.cuda(1) * safe_exp(sv1, name='sv1F') + 0.5 * self.eps * \
             (- safe_exp(fv1, name='fv1F') * grad1) + tv1
 
         m, mb = self._get_mask(step)
 
-        X1 = self.XNet([v_h, m * x, t, aux])  # rewrite for torch
+        X1 = self.XNet([v_h, (m * x), t, aux])  # rewrite for torch
 
         sx1 = (self.eps * X1[0])  # rewrite for torch
         tx1 = X1[1]  # rewrite for torch
@@ -77,12 +78,12 @@ class Dynamics(object):
                             self.eps * (safe_exp(fx2, name='fx2F') * v_h + tx2))
 
         # rewrite for torch
-        S2 = self.VNet([x_o, self.grad_energy(x_o, aux), t, aux])
+        S2 = self.VNet([x_o, self.grad_energy(x_o.data, aux), t, aux])
         sv2 = (0.5 * self.eps * S2[0])  # rewrite for torch
         tv2 = S2[1]  # rewrite for torch
         fv2 = self.eps * S2[2]  # rewrite for torch
 
-        grad2 = self.grad_energy(x_o, aux)
+        grad2 = self.grad_energy(x_o.data, aux)
         v_o = v_h * safe_exp(sv2, name='sv2F') + 0.5 * self.eps * \
             (- safe_exp(fv2, name='fv2F') * grad2 + tv2)
 
@@ -91,17 +92,17 @@ class Dynamics(object):
         return x_o, v_o, log_jac_contrib
 
     def _backward_step(self, x_o, v_o, step, aux=None):
-        t = self._format_time(step, tile=x_o.size()[0])
+        t = self._format_time(step, tile=x_o.size()[0]).cuda(1)
 
-        grad1 = self.grad_energy(x_o, aux)
+        grad1 = self.grad_energy(x_o.data, aux)
 
-        S1 = self.VNet([x_o, grad1, t, aux])
+        S1 = self.VNet([x_o.cuda(1), grad1, t, aux])
 
         sv2 = (-0.5 * self.eps * S1[0])
         tv2 = S1[1]
         fv2 = self.eps * S1[2]
 
-        v_h = (v_o - 0.5 * self.eps * (- safe_exp(fv2, name='fv2B')
+        v_h = (v_o.cuda(1) - 0.5 * self.eps * (- safe_exp(fv2, name='fv2B')
                                        * grad1 + tv2)) * safe_exp(sv2, name='sv2B')
 
         m, mb = self._get_mask(step)
@@ -124,7 +125,7 @@ class Dynamics(object):
         x = m * y + mb * safe_exp(sx1, name='sx1B') * (y -
                                                        self.eps * (safe_exp(fx1, name='fx1B') * v_h + tx1))
 
-        grad2 = self.grad_energy(x, aux)
+        grad2 = self.grad_energy(x.data, aux)
         S2 = self.VNet([x, grad2, t, aux])
 
         sv1 = (-0.5 * self.eps * S2[0])
@@ -142,15 +143,12 @@ class Dynamics(object):
         else:
             return self.energy_function(x)
 
-
     def grad_energy(self, x, aux=None):
         x.requires_grad = True
         en = self.energy(x, aux)
-        grad_en = []
-        for el_en in en:
-            grad_en.append(torch.autograd.grad(el_en, x, retain_graph=True)[0])
+        grad_en = torch.autograd.grad(torch.sum(en), x)[0]
         x.requires_grad = False
-        return sum(grad_en)
+        return grad_en
 
 
     def forward(self, x, init_v=None, aux=None, log_path=False, log_jac=False):
@@ -161,7 +159,7 @@ class Dynamics(object):
 
         # dN = x.size()[0]
         # t = tf.constant(0., dtype=TF_FLOAT)
-        j = torch.zeros(x.size()[0])
+        j = torch.zeros(x.size()[0]).cuda(1)
 
         t = 0
         while t < self.T:
@@ -172,7 +170,7 @@ class Dynamics(object):
         if log_jac:
             return X, V, log_jac_
 
-        return X, V, self.p_accept(x, v, X, V, log_jac_, aux)
+        return X, V, self.p_accept(x.cuda(1), v.cuda(1), X.cuda(1), V.cuda(1), log_jac_.cuda(1), aux.cuda(1))
 
     def backward(self, x, init_v=None, aux=None, log_jac=False):
         if init_v is None:
@@ -186,22 +184,21 @@ class Dynamics(object):
 
         t = 0
         while t < self.T:
-            X, V, log_jac_ = self._backward_step(x, v, self.T - t - 1, aux)
+            X, V, log_jac_ = self._backward_step(x, v, self.T - t - 1, aux.cuda(1))
             t += 1
-        log_jac_ = log_jac_ + j
+        log_jac_ = log_jac_ + j.cuda(1)
 
         if log_jac:
             return X, V, log_jac_
 
-        return X, V, self.p_accept(x, v, X, V, log_jac_, aux)
+        return X, V, self.p_accept(x.cuda(1), v.cuda(1), X.cuda(1), V.cuda(1), log_jac_.cuda(1), aux.cuda(1))
 
     def p_accept(self, x0, v0, x1, v1, log_jac, aux=None):
         e_new = self.hamiltonian(x1, v1, aux)
         e_old = self.hamiltonian(x0, v0, aux)
 
         v = e_old - e_new + log_jac
-        z = torch.FloatTensor([0])
-        p = torch.exp(torch.min(v, z.expand_as(v)))
+        p = torch.exp(torch.min(v, torch.tensor(0.0).cuda(1)))
 
         return torch.where(torch.isfinite(p), p, torch.zeros_like(p))
 
