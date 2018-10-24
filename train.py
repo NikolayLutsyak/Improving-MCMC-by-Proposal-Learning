@@ -2,6 +2,7 @@ from utils.dynamics import Dynamics
 from utils.sampler import propose
 from utils.model import Net
 from torch.optim.lr_scheduler import ExponentialLR
+from itertools import chain
 import numpy as np
 import torch
 
@@ -24,7 +25,7 @@ def train(distribution, x_dim):
     n_samples = 200
 
     x = torch.randn(size=(n_samples, x_dim)).float()
-    optimizer = torch.optim.Adam(lr=0.001)
+    optimizer = torch.optim.Adam(chain(dynamics.XNet.parameters(), dynamics.VNet.parameters()), lr=0.001)
     lr_sheduler = ExponentialLR(optimizer, 0.96**(-1/1000) )
 
     for i in range(n_steps):
