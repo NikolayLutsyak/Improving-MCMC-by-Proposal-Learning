@@ -10,8 +10,8 @@ def compute_loss(x, z, dynamics):
     Lx, _, px, output = propose(x, dynamics, do_mh_step=True)
     Lz, _, pz, _ = propose(z, dynamics, do_mh_step=False)
 
-    v1 = (torch.sum((x - Lx)**2, axis=1) * px) + 1e-4
-    v2 = (torch.sum((z - Lz)**2, axis=1) * pz) + 1e-4
+    v1 = (torch.sum((x - Lx)**2, dim=1) * px) + 1e-4
+    v2 = (torch.sum((z - Lz)**2, dim=1) * pz) + 1e-4
     scale = 0.1
 
     loss = (scale * (torch.mean(1.0 / v1) + torch.mean(1.0 / v2)) +
