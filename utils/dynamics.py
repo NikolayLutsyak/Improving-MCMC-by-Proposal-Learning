@@ -70,7 +70,8 @@ class Dynamics(object):
         x_o = mb * y + m * (y * safe_exp(sx2, name='sx2F') +
                             self.eps * (safe_exp(fx2, name='fx2F') * v_h + tx2))
 
-        S2 = self.VNet([x_o, self.grad_energy(x_o, aux), t, aux])  # rewrite for torch
+        # rewrite for torch
+        S2 = self.VNet([x_o, self.grad_energy(x_o, aux), t, aux])
         sv2 = (0.5 * self.eps * S2[0])  # rewrite for torch
         tv2 = S2[1]  # rewrite for torch
         fv2 = self.eps * S2[2]  # rewrite for torch
@@ -135,11 +136,16 @@ class Dynamics(object):
         else:
             return self.energy_function(x)
 
+
     def grad_energy(self, x, aux=None):
-        y = x.detach().requires_grad_()
-        en = self.energy(y, aux)
-        grad = torch.autograd.grad(en, y)
-        return grad
+        x.requires_grad = True
+        en = self.energy(x, aux)
+        grad_en = []
+        for el_en in en:
+            grad_en.append(torch.autograd.grad(el_en, x, retain_graph=True)[0])
+        x.requires_grad = False
+        return sum(grad_en)
+
 
     def forward(self, x, init_v=None, aux=None, log_path=False, log_jac=False):
         if init_v is None:
