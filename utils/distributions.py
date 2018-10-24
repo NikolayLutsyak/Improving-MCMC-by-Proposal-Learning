@@ -3,7 +3,7 @@ import torch
 
 
 def quadratic_gaussian(x, mu, S):
-  return 0.5 * (x - mu) @ S @ (x - mu)
+  return torch.diag(0.5 * (x - mu) @ S @ (x - mu).transpose(0, 1))
 
 
 class Gaussian(object):
