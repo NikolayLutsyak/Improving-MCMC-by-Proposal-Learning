@@ -37,11 +37,11 @@ class Dynamics(object):
             2 * np.pi * t / self.T)), torch.sin(torch.tensor(2 * np.pi * t / self.T))])
         return trig_t.repeat(tile, 1)
 
-    def _forward_step(self, x, v, step):
+    def _forward_step(self, x, v, step, aux=None):
         t = self._format_time(step, tile=x.size()[0])
 
-        grad1 = self.grad_energy(x)
-        S1 = self.VNet([x, grad1, t])  # rewrite for torch
+        grad1 = self.grad_energy(x, aux)
+        S1 = self.VNet([x, grad1, t, aux])  # rewrite for torch
 
         sv1 = 0.5 * self.eps * S1[0]  # rewrite for torch
         tv1 = S1[1]  # rewrite for torch
@@ -61,7 +61,7 @@ class Dynamics(object):
         y = m * x + mb * (x * safe_exp(sx1, name='sx1F') +
                           self.eps * (safe_exp(fx1, name='fx1F') * v_h + tx1))
 
-        X2 = self.XNet([v_h, mb * y, t])  # rewrite for torch
+        X2 = self.XNet([v_h, mb * y, t, aux])  # rewrite for torch
 
         sx2 = (self.eps * X2[0])  # rewrite for torch
         tx2 = X2[1]  # rewrite for torch
@@ -70,12 +70,12 @@ class Dynamics(object):
         x_o = mb * y + m * (y * safe_exp(sx2, name='sx2F') +
                             self.eps * (safe_exp(fx2, name='fx2F') * v_h + tx2))
 
-        S2 = self.VNet([x_o, self.grad_energy(x_o), t])  # rewrite for torch
+        S2 = self.VNet([x_o, self.grad_energy(x_o, aux), t, aux])  # rewrite for torch
         sv2 = (0.5 * self.eps * S2[0])  # rewrite for torch
         tv2 = S2[1]  # rewrite for torch
         fv2 = self.eps * S2[2]  # rewrite for torch
 
-        grad2 = self.grad_energy(x_o)
+        grad2 = self.grad_energy(x_o, aux)
         v_o = v_h * safe_exp(sv2, name='sv2F') + 0.5 * self.eps * \
             (- safe_exp(fv2, name='fv2F') * grad2 + tv2)
 
@@ -86,9 +86,9 @@ class Dynamics(object):
     def _backward_step(self, x_o, v_o, step, aux=None):
         t = self._format_time(step, tile=x_o.size()[0])
 
-        grad1 = self.grad_energy(x_o)
+        grad1 = self.grad_energy(x_o, aux)
 
-        S1 = self.VNet([x_o, grad1, t])
+        S1 = self.VNet([x_o, grad1, t, aux])
 
         sv2 = (-0.5 * self.eps * S1[0])
         tv2 = S1[1]
@@ -99,7 +99,7 @@ class Dynamics(object):
 
         m, mb = self._get_mask(step)
 
-        X1 = self.XNet([v_h, mb * x_o, t])
+        X1 = self.XNet([v_h, mb * x_o, t, aux])
 
         sx2 = (-self.eps * X1[0])
         tx2 = X1[1]
@@ -108,7 +108,7 @@ class Dynamics(object):
         y = mb * x_o + m * safe_exp(sx2, name='sx2B') * (x_o -
                                                          self.eps * (safe_exp(fx2, name='fx2B') * v_h + tx2))
 
-        X2 = self.XNet([v_h, m * y, t])
+        X2 = self.XNet([v_h, m * y, t, aux])
 
         sx1 = (-self.eps * X2[0])
         tx1 = X2[1]
@@ -117,8 +117,8 @@ class Dynamics(object):
         x = m * y + mb * safe_exp(sx1, name='sx1B') * (y -
                                                        self.eps * (safe_exp(fx1, name='fx1B') * v_h + tx1))
 
-        grad2 = self.grad_energy(x)
-        S2 = self.VNet([x, grad2, t])
+        grad2 = self.grad_energy(x, aux)
+        S2 = self.VNet([x, grad2, t, aux])
 
         sv1 = (-0.5 * self.eps * S2[0])
         tv1 = S2[1]
@@ -129,14 +129,19 @@ class Dynamics(object):
 
         return x, v, torch.sum(sv1 + sv2 + mb * sx1 + m * sx2, dim=1)
 
-    def energy(self, x):
-        return self.energy_function(x)
+    def energy(self, x, aux=None):
+        if aux is not None: 
+            return self.energy_function(x, aux)
+        else:
+            return self.energy_function(x)
 
-    def grad_energy(self, x):
-        y = torch.Tensor(x, requires_grad=True)
-        en = self.energy(y)
+    def grad_energy(self, x, aux=None):
+        x.requires_grad=True
+        en = self.energy(x, aux)
         en.backward()
-        return y.grad
+        grad = x.grad
+        x.requires_grad=False
+        return grad
 
     def forward(self, x, init_v=None, aux=None, log_path=False, log_jac=False):
         if init_v is None:
@@ -150,14 +155,14 @@ class Dynamics(object):
 
         t = 0
         while t < self.T:
-            X, V, log_jac_ = self._forward_step(x, v, t)
+            X, V, log_jac_ = self._forward_step(x, v, t, aux)
             t += 1
         log_jac_ = log_jac_ + j
 
         if log_jac:
             return X, V, log_jac_
 
-        return X, V, self.p_accept(x, v, X, V, log_jac_)
+        return X, V, self.p_accept(x, v, X, V, log_jac_, aux)
 
     def backward(self, x, init_v=None, aux=None, log_jac=False):
         if init_v is None:
@@ -171,18 +176,18 @@ class Dynamics(object):
 
         t = 0
         while t < self.T:
-            X, V, log_jac_ = self._backward_step(x, v, self.T - t - 1)
+            X, V, log_jac_ = self._backward_step(x, v, self.T - t - 1, aux)
             t += 1
         log_jac_ = log_jac_ + j
 
         if log_jac:
             return X, V, log_jac_
 
-        return X, V, self.p_accept(x, v, X, V, log_jac_)
+        return X, V, self.p_accept(x, v, X, V, log_jac_, aux)
 
     def p_accept(self, x0, v0, x1, v1, log_jac, aux=None):
-        e_new = self.hamiltonian(x1, v1)
-        e_old = self.hamiltonian(x0, v0)
+        e_new = self.hamiltonian(x1, v1, aux)
+        e_old = self.hamiltonian(x0, v0, aux)
 
         v = e_old - e_new + log_jac
         p = torch.exp(torch.min(v, 0.0))
@@ -190,7 +195,7 @@ class Dynamics(object):
         return torch.where(torch.isfinite(p), p, torch.zeros_like(p))
 
     def kinetic(self, v):
-        return 0.5 * torch.sum(tf.square(v), dim=1)
+        return 0.5 * torch.sum(v**2, dim=1)
 
     def hamiltonian(self, x, v, aux=None):
-        return self.energy(x) + self.kinetic(v)
+        return self.energy(x, aux) + self.kinetic(v)
