@@ -2,6 +2,10 @@ import torch
 import numpy as np
 
 
+def safe_exp(x, name=None):
+    return torch.exp(x)
+
+
 class Dynamics(object):
     def __init__(self,
                  x_dim,
