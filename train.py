@@ -1,6 +1,6 @@
 from utils.dynamics import Dynamics
 from utils.sampler import propose
-from utils.model import Net
+from model import Net
 from torch.optim.lr_scheduler import ExponentialLR
 from itertools import chain
 import numpy as np
