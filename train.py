@@ -6,7 +6,7 @@ from itertools import chain
 import numpy as np
 import torch
 
-def compute_loss(x, z):
+def compute_loss(x, z, dynamics):
     Lx, _, px, output = propose(x, dynamics, do_mh_step=True)
     Lz, _, pz, _ = propose(z, dynamics, do_mh_step=False)
 
@@ -31,7 +31,7 @@ def train(distribution, x_dim):
     for i in range(n_steps):
         lr_sheduler.step()
         z = torch.randn(x.shape)
-        loss, x = compute_loss(x, z)
+        loss, x = compute_loss(x, z, dynamics)
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
