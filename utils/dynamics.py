@@ -12,13 +12,16 @@ class Dynamics(object):
                  eps=0.1,
                  hmc=False,
                  net_factory=None,
-                 encoder_sampler=None):
+                 encoder_sampler=None,
+                 size1=10,
+                 size2=10):
         self.hmc = hmc
         self.x_dim = x_dim
         self.energy_function = energy_function
         self.T = T
-        self.Xnet = net_factory(x_dim, encoder=encoder_sampler).cuda(1)
-        self.VNet = net_factory(x_dim, encoder=encoder_sampler).cuda(1)
+        self.eps = eps
+        self.XNet = net_factory(x_dim, size1, size2, encoder=encoder_sampler).cuda(1)
+        self.VNet = net_factory(x_dim, size1, size2, encoder=encoder_sampler).cuda(1)
         self._init_mask()
 
     def _init_mask(self):
