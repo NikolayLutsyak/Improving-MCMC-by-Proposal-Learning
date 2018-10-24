@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+from time import time
 
 
 def propose(x, dynamics, init_v=None, aux=None, do_mh_step=False, log_jac=False):
