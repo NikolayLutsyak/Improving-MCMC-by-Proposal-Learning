@@ -15,14 +15,26 @@ class Dynamics(object):
                  net_factory=None,
                  encoder_sampler=None,
                  size1=10,
-                 size2=10):
+                 size2=10,
+                 model_paths=None):
         self.hmc = hmc
         self.x_dim = x_dim
         self.energy_function = energy_function
         self.T = T
-        self.eps = eps
-        self.XNet = net_factory(x_dim, size1, size2, encoder=encoder_sampler).cuda(1)
-        self.VNet = net_factory(x_dim, size1, size2, encoder=encoder_sampler).cuda(1)
+        self.eps = torch.tensor(eps).cuda(1)
+        if hmc:
+            z = lambda x, *args, **kwargs: torch.zeros_like(x).cuda(1)
+            self.XNet = lambda inp: [torch.zeros_like(inp[0]).cuda(1) for t in range(3)]
+            self.VNet = lambda inp: [torch.zeros_like(inp[0]).cuda(1) for t in range(3)]
+        else:
+            self.XNet = net_factory(x_dim, size1, size2, encoder=encoder_sampler)
+            self.VNet = net_factory(x_dim, size1, size2, encoder=encoder_sampler)
+            if model_paths is not None:
+                self.XNet.load_state_dict(torch.load(model_paths[0]))
+                self.VNet.load_state_dict(torch.load(model_paths[1]))
+
+            self.XNet.cuda(1)
+            self.VNet.cuda(1)
         self._init_mask()
 
     def _init_mask(self):
@@ -55,7 +67,7 @@ class Dynamics(object):
         fv1 = self.eps * S1[2]  # rewrite for torch
 
         v_h = v.cuda(1) * safe_exp(sv1, name='sv1F') + 0.5 * self.eps * \
-            (- safe_exp(fv1, name='fv1F') * grad1) + tv1
+            (- safe_exp(fv1, name='fv1F') * grad1.cuda(1)) + tv1
 
         m, mb = self._get_mask(step)
 
@@ -151,48 +163,48 @@ class Dynamics(object):
         return grad_en
 
 
+       
     def forward(self, x, init_v=None, aux=None, log_path=False, log_jac=False):
         if init_v is None:
-            v = torch.randn(x.size())
+            v = torch.randn(x.size()).cuda(1)
         else:
             v = init_v
-
-        # dN = x.size()[0]
-        # t = tf.constant(0., dtype=TF_FLOAT)
         j = torch.zeros(x.size()[0]).cuda(1)
 
+        x_old = x
+        v_old = v
         t = 0
         while t < self.T:
-            X, V, log_jac_ = self._forward_step(x, v, t, aux)
+            x, v, log_jac_ = self._forward_step(x, v, t, aux)
             t += 1
-        log_jac_ = log_jac_ + j
-
+            j += log_jac_
+        
         if log_jac:
-            return X, V, log_jac_
+            return x, v, j
 
-        return X, V, self.p_accept(x.cuda(1), v.cuda(1), X.cuda(1), V.cuda(1), log_jac_.cuda(1), aux.cuda(1))
+        return x, v, self.p_accept(x_old, v_old.cuda(1), x, v.cuda(1), j, aux)
+
 
     def backward(self, x, init_v=None, aux=None, log_jac=False):
         if init_v is None:
-            v = torch.randn(x.size())
+            v = torch.randn(x.size()).cuda(1)
         else:
             v = init_v
+        j = torch.zeros(x.size()[0]).cuda(1)
 
-        # dN = tf.shape(x)[0]
-        # t = tf.constant(0., name='step_backward', dtype=TF_FLOAT)
-        j = torch.zeros(x.size()[0])
-
+        x_old = x
+        v_old = v
         t = 0
         while t < self.T:
-            X, V, log_jac_ = self._backward_step(x, v, self.T - t - 1, aux.cuda(1))
+            x, v, log_jac_ = self._backward_step(x, v, self.T - t - 1, aux.cuda(1))
             t += 1
-        log_jac_ = log_jac_ + j.cuda(1)
-
+            j += log_jac_
+        
         if log_jac:
-            return X, V, log_jac_
+            return x, v, j
 
-        return X, V, self.p_accept(x.cuda(1), v.cuda(1), X.cuda(1), V.cuda(1), log_jac_.cuda(1), aux.cuda(1))
-
+        return x, v, self.p_accept(x_old, v_old.cuda(1), x, v.cuda(1), j, aux)
+    
     def p_accept(self, x0, v0, x1, v1, log_jac, aux=None):
         e_new = self.hamiltonian(x1, v1, aux)
         e_old = self.hamiltonian(x0, v0, aux)
