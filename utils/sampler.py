@@ -1,6 +1,5 @@
 import numpy as np
 import torch
-from time import time
 
 
 def propose(x, dynamics, init_v=None, aux=None, do_mh_step=False, log_jac=False):
@@ -9,7 +8,7 @@ def propose(x, dynamics, init_v=None, aux=None, do_mh_step=False, log_jac=False)
         return Lx, Lv, px, [t_accept(x, Lx, px)]
     else:
         # sample mask for forward/backward
-        mask = torch.randint(high=2, size = (x.shape[0], 1)).float().cuda(1)
+        mask = torch.randint(high=2, size = (x.shape[0], 1)).float()
         Lx1, Lv1, px1 = dynamics.forward(x, aux=aux, log_jac=log_jac)
         Lx2, Lv2, px2 = dynamics.backward(x, aux=aux, log_jac=log_jac)
 
@@ -29,8 +28,8 @@ def propose(x, dynamics, init_v=None, aux=None, do_mh_step=False, log_jac=False)
         return Lx, Lv, px, outputs
 
 def t_accept(x, Lx, px):
-    mask = (px - torch.rand(px.shape).cuda(1) >= 0.)
-    return torch.where(mask.expand(x.shape[1], x.shape[0]).transpose(1, 0), Lx, x)
+    mask = (px - torch.rand(px.shape) >= 0.)
+    return torch.where(mask, Lx, x)
 
 def chain_operator(init_x, dynamics, nb_steps, aux=None, init_v=None, do_mh_step=False):
     if not init_v:
@@ -39,10 +38,10 @@ def chain_operator(init_x, dynamics, nb_steps, aux=None, init_v=None, do_mh_step
     log_jac = torch.zeros((init_x.shape[0], ))
    
     while t < nb_steps.float():
-        Lx, Lv, px, _ = propose(init_x, dynamics, init_v=v, aux=aux, log_jac=True, do_mh_step=False)
+        Lx, Lv, px, _ = propose(init_x, dynamics, init_v, aux=aux, log_jac=True, do_mh_step=False)
         log_jac = log_jac + px
         t = t + 1
-
+    final_x, final_v, log_jac, _ =  Lx, Lv, log_jac+px, t+1   
     p_accept = dynamics.p_accept(init_x, init_v, final_x, final_v, log_jac, aux=aux)
 
     outputs = []
