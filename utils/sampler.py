@@ -39,7 +39,7 @@ def chain_operator(init_x, dynamics, nb_steps, aux=None, init_v=None, do_mh_step
     log_jac = torch.zeros((init_x.shape[0], ))
    
     while t < nb_steps.float():
-        Lx, Lv, px, _ = propose(x, dynamics, init_v=v, aux=aux, log_jac=True, do_mh_step=False)
+        Lx, Lv, px, _ = propose(init_x, dynamics, init_v=v, aux=aux, log_jac=True, do_mh_step=False)
         log_jac = log_jac + px
         t = t + 1
 
